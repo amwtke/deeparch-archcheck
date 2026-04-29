@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{PROJECT_NAME}} - 架构体检报告</title>
+<!--
+  archcheck HTML 报告模板
+  风格:深色科技风,延续 deeparch 视觉语言
+  
+  生成器使用说明:
+  - 把所有 {{XXX}} 占位符替换为实际内容
+  - 五维评分用 SVG 雷达图,数据从评分表生成
+  - 扣分项卡片支持折叠展开
+  - 代码块用 monospace 字体,支持简单语法高亮
+-->
+<style>
+  /* === 设计令牌 === */
+  :root {
+    --bg-deep: #0a0c10;
+    --bg-card: #12151c;
+    --bg-card-hover: #161a23;
+    --border: #1e2330;
+    --border-hover: #2a3142;
+    
+    --text-primary: #e8eaed;
+    --text-secondary: #a8b0bd;
+    --text-tertiary: #6c7385;
+    --text-mono: #c9d1d9;
+    
+    --accent-cyan: #5ee2e8;
+    --accent-blue: #4a9eff;
+    --accent-purple: #b87ee0;
+    --accent-green: #6ee7b7;
+    --accent-yellow: #fcd34d;
+    --accent-orange: #fb923c;
+    --accent-red: #f87171;
+    --accent-pink: #f0abfc;
+    
+    --grade-A: #6ee7b7;
+    --grade-B: #5ee2e8;
+    --grade-C: #fcd34d;
+    --grade-D: #fb923c;
+    --grade-F: #f87171;
+    
+    --severity-high: #f87171;
+    --severity-medium: #fcd34d;
+    --severity-low: #a8b0bd;
+    
+    --font-sans: "Noto Sans SC", -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  
+  /* === 重置 === */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.7;
+    min-height: 100vh;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  
+  /* === 布局 === */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px 32px;
+  }
+  
+  /* === 头部 === */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 32px;
+    margin-bottom: 40px;
+  }
+  
+  .header .label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent-cyan);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  
+  .header h1 {
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .header .meta {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-family: var(--font-mono);
+  }
+  
+  .header .meta span::before {
+    content: "$ ";
+    color: var(--accent-green);
+  }
+  
+  /* === 总评卡片 === */
+  .verdict {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 40px;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 32px;
+    align-items: center;
+  }
+  
+  .verdict-grade {
+    text-align: center;
+  }
+  
+  .verdict-grade .letter {
+    font-size: 120px;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  
+  .verdict-grade.A .letter { color: var(--grade-A); }
+  .verdict-grade.B .letter { color: var(--grade-B); }
+  .verdict-grade.C .letter { color: var(--grade-C); }
+  .verdict-grade.D .letter { color: var(--grade-D); }
+  .verdict-grade.F .letter { color: var(--grade-F); }
+  
+  .verdict-grade .score {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+  
+  .verdict-grade .label {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 8px;
+  }
+  
+  .verdict-summary h2 {
+    font-size: 18px;
+    margin-bottom: 16px;
+    color: var(--accent-cyan);
+  }
+  
+  .verdict-summary p {
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+  }
+  
+  /* === 雷达图区 === */
+  .radar-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 40px;
+  }
+  
+  .radar-section h2 {
+    font-size: 18px;
+    margin-bottom: 24px;
+    color: var(--accent-cyan);
+  }
+  
+  .radar-section h2::before {
+    content: "◈ ";
+    color: var(--accent-purple);
+  }
+  
+  .radar-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+    align-items: center;
+  }
+  
+  .radar-svg {
+    width: 100%;
+    height: auto;
+    max-height: 400px;
+  }
+  
+  .radar-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  
+  .radar-table th,
+  .radar-table td {
+    padding: 12px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  
+  .radar-table th {
+    color: var(--text-tertiary);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  
+  .radar-table .grade {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 16px;
+  }
+  
+  .grade-A { color: var(--grade-A); }
+  .grade-B { color: var(--grade-B); }
+  .grade-C { color: var(--grade-C); }
+  .grade-D { color: var(--grade-D); }
+  .grade-F { color: var(--grade-F); }
+  
+  /* === 维度章节 === */
+  .dimension {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 24px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  
+  .dimension:hover {
+    border-color: var(--border-hover);
+  }
+  
+  .dimension-header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .dimension-header h2 {
+    font-size: 20px;
+    color: var(--text-primary);
+  }
+  
+  .dimension-header .ruler {
+    color: var(--accent-purple);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    margin-right: 8px;
+  }
+  
+  .dimension-grade {
+    display: inline-block;
+    padding: 6px 16px;
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 16px;
+    background: rgba(94, 226, 232, 0.1);
+  }
+  
+  .dimension-body {
+    padding: 24px 32px;
+  }
+  
+  .dim-section {
+    margin-bottom: 32px;
+  }
+  
+  .dim-section:last-child {
+    margin-bottom: 0;
+  }
+  
+  .dim-section h3 {
+    font-size: 14px;
+    margin-bottom: 16px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  .dim-section.well h3 { color: var(--accent-green); }
+  .dim-section.fail h3 { color: var(--accent-red); }
+  .dim-section.fix h3 { color: var(--accent-yellow); }
+  
+  .dim-section.well h3::before { content: "✓ "; }
+  .dim-section.fail h3::before { content: "✗ "; }
+  .dim-section.fix h3::before { content: "🔧 "; }
+  
+  /* === 扣分项卡片 === */
+  .finding {
+    background: rgba(248, 113, 113, 0.04);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  
+  .finding.severity-medium {
+    background: rgba(252, 211, 77, 0.04);
+    border-color: rgba(252, 211, 77, 0.2);
+  }
+  
+  .finding.severity-low {
+    background: rgba(168, 176, 189, 0.04);
+    border-color: rgba(168, 176, 189, 0.2);
+  }
+  
+  .finding-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .severity-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  
+  .severity-high {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--severity-high);
+  }
+  
+  .severity-medium {
+    background: rgba(252, 211, 77, 0.15);
+    color: var(--severity-medium);
+  }
+  
+  .severity-low {
+    background: rgba(168, 176, 189, 0.15);
+    color: var(--severity-low);
+  }
+  
+  .finding-location {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent-cyan);
+    margin-bottom: 12px;
+  }
+  
+  .finding-analysis {
+    margin-top: 12px;
+  }
+  
+  .finding-analysis dl {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 8px 16px;
+    font-size: 13px;
+  }
+  
+  .finding-analysis dt {
+    color: var(--accent-purple);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding-top: 2px;
+  }
+  
+  .finding-analysis dd {
+    color: var(--text-secondary);
+  }
+  
+  /* === 代码块 === */
+  pre {
+    background: #06080c;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-mono);
+    margin: 12px 0;
+    line-height: 1.6;
+  }
+  
+  pre.before { border-left: 3px solid var(--accent-red); }
+  pre.after { border-left: 3px solid var(--accent-green); }
+  
+  code:not(pre code) {
+    background: rgba(94, 226, 232, 0.1);
+    color: var(--accent-cyan);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  
+  /* === Top 5 改造点 === */
+  .priorities {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 40px;
+  }
+  
+  .priorities h2 {
+    font-size: 18px;
+    margin-bottom: 24px;
+    color: var(--accent-cyan);
+  }
+  
+  .priorities h2::before {
+    content: "◇ ";
+    color: var(--accent-purple);
+  }
+  
+  .priority-item {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 16px;
+    align-items: center;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: rgba(94, 226, 232, 0.03);
+    border: 1px solid var(--border);
+  }
+  
+  .priority-num {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    text-align: center;
+  }
+  
+  .priority-content h4 {
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  
+  .priority-content p {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  
+  .priority-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  
+  .priority-tag {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(184, 126, 224, 0.1);
+    color: var(--accent-purple);
+    border: 1px solid rgba(184, 126, 224, 0.2);
+  }
+  
+  /* === 路线图 === */
+  .roadmap {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin-bottom: 40px;
+  }
+  
+  .roadmap h2 {
+    font-size: 18px;
+    margin-bottom: 24px;
+    color: var(--accent-cyan);
+  }
+  
+  .roadmap h2::before {
+    content: "◈ ";
+    color: var(--accent-purple);
+  }
+  
+  .roadmap-stages {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  
+  .stage {
+    background: rgba(94, 226, 232, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    position: relative;
+  }
+  
+  .stage-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent-cyan);
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+  }
+  
+  .stage h4 {
+    font-size: 16px;
+    margin-bottom: 12px;
+  }
+  
+  .stage-duration {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-bottom: 12px;
+  }
+  
+  .stage ul {
+    list-style: none;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  
+  .stage li {
+    padding: 4px 0 4px 16px;
+    position: relative;
+  }
+  
+  .stage li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--accent-cyan);
+  }
+  
+  /* === 动画 === */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  .container > * {
+    animation: fadeInUp 0.5s ease-out backwards;
+  }
+  
+  .container > *:nth-child(1) { animation-delay: 0.0s; }
+  .container > *:nth-child(2) { animation-delay: 0.1s; }
+  .container > *:nth-child(3) { animation-delay: 0.2s; }
+  .container > *:nth-child(4) { animation-delay: 0.3s; }
+  
+  /* === 响应式 === */
+  @media (max-width: 768px) {
+    .container { padding: 24px 16px; }
+    .verdict { grid-template-columns: 1fr; gap: 24px; }
+    .radar-grid { grid-template-columns: 1fr; }
+    .roadmap-stages { grid-template-columns: 1fr; }
+    .header h1 { font-size: 28px; }
+  }
+  
+  /* === 页脚 === */
+  .footer {
+    text-align: center;
+    padding: 32px 0;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ═══ 头部 ═══ -->
+  <div class="header">
+    <div class="label">archcheck :: architecture audit</div>
+    <h1>{{PROJECT_NAME}}</h1>
+    <div class="meta">
+      <span>stack: {{TECH_STACK}}</span>
+      <span>scale: {{LOC}} loc / {{FILE_COUNT}} files</span>
+      <span>scanned: {{SCAN_DATE}}</span>
+    </div>
+  </div>
+
+  <!-- ═══ 总评 ═══ -->
+  <div class="verdict">
+    <div class="verdict-grade {{OVERALL_GRADE}}">
+      <div class="letter">{{OVERALL_GRADE}}</div>
+      <div class="score">{{WEIGHTED_SCORE}} / 4.0</div>
+      <div class="label">{{OVERALL_LABEL}}</div>
+    </div>
+    <div class="verdict-summary">
+      <h2>总评</h2>
+      <p>{{OVERALL_SUMMARY_P1}}</p>
+      <p>{{OVERALL_SUMMARY_P2}}</p>
+    </div>
+  </div>
+
+  <!-- ═══ 五维雷达图 ═══ -->
+  <div class="radar-section">
+    <h2>五维评分</h2>
+    <div class="radar-grid">
+      <!-- SVG 雷达图占位,生成器替换 -->
+      <svg class="radar-svg" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+        <!-- 背景同心五边形 -->
+        <g fill="none" stroke="#1e2330" stroke-width="1">
+          <polygon points="{{RADAR_BG_4}}" />
+          <polygon points="{{RADAR_BG_3}}" />
+          <polygon points="{{RADAR_BG_2}}" />
+          <polygon points="{{RADAR_BG_1}}" />
+        </g>
+        <!-- 五个轴 -->
+        <g stroke="#1e2330" stroke-width="1">
+          {{RADAR_AXES}}
+        </g>
+        <!-- 数据多边形 -->
+        <polygon points="{{RADAR_DATA}}" 
+                 fill="rgba(94, 226, 232, 0.15)" 
+                 stroke="#5ee2e8" 
+                 stroke-width="2"/>
+        <!-- 数据点 -->
+        {{RADAR_POINTS}}
+        <!-- 维度标签 -->
+        {{RADAR_LABELS}}
+      </svg>
+
+      <table class="radar-table">
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>评分</th>
+            <th>权重</th>
+            <th>加权</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>依赖方向</td>
+            <td class="grade grade-{{D1_GRADE}}">{{D1_GRADE}}</td>
+            <td>30%</td>
+            <td>{{D1_WEIGHTED}}</td>
+          </tr>
+          <tr>
+            <td>边界完整性</td>
+            <td class="grade grade-{{D2_GRADE}}">{{D2_GRADE}}</td>
+            <td>25%</td>
+            <td>{{D2_WEIGHTED}}</td>
+          </tr>
+          <tr>
+            <td>Entity vs UseCase</td>
+            <td class="grade grade-{{D3_GRADE}}">{{D3_GRADE}}</td>
+            <td>15%</td>
+            <td>{{D3_WEIGHTED}}</td>
+          </tr>
+          <tr>
+            <td>可测试性</td>
+            <td class="grade grade-{{D4_GRADE}}">{{D4_GRADE}}</td>
+            <td>20%</td>
+            <td>{{D4_WEIGHTED}}</td>
+          </tr>
+          <tr>
+            <td>代码坏味道</td>
+            <td class="grade grade-{{D5_GRADE}}">{{D5_GRADE}}</td>
+            <td>10%</td>
+            <td>{{D5_WEIGHTED}}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══ 各维度详情 ═══ -->
+  {{DIMENSION_BLOCKS}}
+  <!--
+  每个维度块结构(由生成器填充):
+  
+  <div class="dimension">
+    <div class="dimension-header">
+      <h2><span class="ruler">[01]</span>依赖方向</h2>
+      <span class="dimension-grade grade-B">B</span>
+    </div>
+    <div class="dimension-body">
+      <div class="dim-section well">
+        <h3>做对了的</h3>
+        <ul>...</ul>
+      </div>
+      <div class="dim-section fail">
+        <h3>扣分项</h3>
+        <div class="finding severity-high">
+          <div class="finding-title">
+            <span class="severity-badge severity-high">严重</span>
+            <span>Spring 注解出现在业务核心</span>
+          </div>
+          <div class="finding-location">src/main/java/.../Order.java:12</div>
+          <div class="finding-analysis">
+            <dl>
+              <dt>现象层</dt>
+              <dd>...</dd>
+              <dt>机制层</dt>
+              <dd>...</dd>
+              <dt>原理层</dt>
+              <dd>...</dd>
+            </dl>
+          </div>
+          <pre class="before"><code>// 改之前
+@Entity
+public class Order {...}</code></pre>
+          <pre class="after"><code>// 改之后
+public class Order {...}</code></pre>
+        </div>
+      </div>
+      <div class="dim-section fix">
+        <h3>改造建议</h3>
+        ...
+      </div>
+    </div>
+  </div>
+  -->
+
+  <!-- ═══ Top 5 改造点 ═══ -->
+  <div class="priorities">
+    <h2>Top 5 优先改造点</h2>
+    {{TOP5_ITEMS}}
+    <!--
+    <div class="priority-item">
+      <div class="priority-num">01</div>
+      <div class="priority-content">
+        <h4>把 JPA 注解从 Order 抽到 OrderJpaEntity</h4>
+        <p>影响:让 Domain 真正纯净,可独立编译。预计工作量 2-3 天。</p>
+      </div>
+      <div class="priority-tags">
+        <span class="priority-tag">cost: 小</span>
+        <span class="priority-tag">value: 大</span>
+      </div>
+    </div>
+    -->
+  </div>
+
+  <!-- ═══ 路线图 ═══ -->
+  <div class="roadmap">
+    <h2>重构路线图</h2>
+    <div class="roadmap-stages">
+      <div class="stage">
+        <div class="stage-num">STAGE 01</div>
+        <h4>止血</h4>
+        <div class="stage-duration">{{STAGE1_DURATION}}</div>
+        <ul>
+          {{STAGE1_ITEMS}}
+        </ul>
+      </div>
+      <div class="stage">
+        <div class="stage-num">STAGE 02</div>
+        <h4>修复</h4>
+        <div class="stage-duration">{{STAGE2_DURATION}}</div>
+        <ul>
+          {{STAGE2_ITEMS}}
+        </ul>
+      </div>
+      <div class="stage">
+        <div class="stage-num">STAGE 03</div>
+        <h4>优化</h4>
+        <div class="stage-duration">{{STAGE3_DURATION}}</div>
+        <ul>
+          {{STAGE3_ITEMS}}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    generated by archcheck :: based on Clean Architecture by R.C. Martin & Hexagonal Architecture by A. Cockburn
+  </div>
+
+</div>
+</body>
+</html>
